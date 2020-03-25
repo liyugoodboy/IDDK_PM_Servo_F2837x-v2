@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ExportImportMemento.1>
+<VarMeta IMemento.internal.id="EnableFlag"/>
+<VarMeta IMemento.internal.id="IsrTicker"/>
+<VarMeta IMemento.internal.id="SpeedRef"/>
+<VarMeta IMemento.internal.id="rc1.TargetValue"/>
+<VarMeta IMemento.internal.id="rc1.SetpointValue"/>
+<VarMeta IMemento.internal.id="rg1.Out"/>
+<VarMeta IMemento.internal.id="offset_SDFM1"/>
+<VarMeta IMemento.internal.id="offset_SDFM2"/>
+<VarMeta IMemento.internal.id="offset_lemV"/>
+<VarMeta IMemento.internal.id="offset_lemW"/>
+<VarMeta IMemento.internal.id="svgen1.Ta"/>
+<VarMeta IMemento.internal.id="RunMotor"/>
+<VarMeta IMemento.internal.id="TripFlagDMC"/>
+<VarMeta IMemento.internal.id="clearTripFlagDMC"/>
+<VarMeta IMemento.internal.id="clkPrescale"/>
+<VarMeta IMemento.internal.id="sampwin"/>
+<VarMeta IMemento.internal.id="thresh"/>
+<VarMeta IMemento.internal.id="curLimit"/>
+</ExportImportMemento.1>

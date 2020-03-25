@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ExportImportMemento.1>
+<VarMeta IMemento.internal.id="EnableFlag"/>
+<VarMeta IMemento.internal.id="IsrTicker"/>
+<VarMeta IMemento.internal.id="SpeedRef"/>
+<VarMeta IMemento.internal.id="rc1.SetpointValue"/>
+<VarMeta IMemento.internal.id="rg1.Out"/>
+<VarMeta IMemento.internal.id="VdTesting"/>
+<VarMeta IMemento.internal.id="VqTesting"/>
+<VarMeta IMemento.internal.id="svgen1.Ta"/>
+<VarMeta IMemento.internal.id="rslvrIn.TUNING"/>
+<VarMeta IMemento.internal.id="testCntMax"/>
+<VarMeta IMemento.internal.id="testAngleMax"/>
+<VarMeta IMemento.internal.id="offsetFc"/>
+<VarMeta IMemento.internal.id="errorFc"/>
+<VarMeta IMemento.internal.id="piconFz"/>
+<VarMeta IMemento.internal.id="rslvrKp"/>
+<VarMeta IMemento.internal.id="rslvrOut.angleRaw"/>
+<VarMeta IMemento.internal.id="rslvrOut.angleObs"/>
+<VarMeta IMemento.internal.id="endat1.RawTheta"/>
+<VarMeta IMemento.internal.id="endat1.RawTheta"/>
+</ExportImportMemento.1>
