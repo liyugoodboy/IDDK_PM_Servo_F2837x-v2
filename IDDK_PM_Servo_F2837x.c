@@ -43,6 +43,7 @@
 		- EPWM1, EPWM2, EPWM3 ---> 逆变器PWMs相A, B, C
 		- EPWM5  ---> Sigma Delta(调制器)时钟
 		- EPWM6  ---> 解析器(位置传感器)反馈采样@ 160KHz
+//XXX EPWM11使用 EPWM8替代
 		- EPWM11 ---> 电机控制PWM同步SDFM滤波器窗口
 		- EPWM4  ---> 如果EnDAT / BiSS界面处于活动状态，则不适用于用户
 
@@ -54,6 +55,7 @@
 	  ADC B4/C+  ---> Ifb-SW     --->W相电流
 	  ADC A2/C+  ---> LEM V      --->LEM传感器V相电流
 	  ADC B2/C+  ---> LEM W      --->LEM传感器W相电流
+//xxx ADC D1 使用 ADC C5替代
 	  ADC D1     ---> R_SIN      --->解析器(位置传感器)正弦反馈
 	  ADC C1     ---> R_COS      --->解析器(位置传感器)余弦反馈
 	  ADC C3     ---> Vfb-U      --->U相电压
@@ -150,14 +152,16 @@ void (*C_Task_Ptr)(void);		// State pointer C branch
 // ADC静态校准
 int *adc_cal;
 
+//xxx 修改为删除&EPwm9Regs, &EPwm10Regs, &EPwm11Regs, &EPwm12Regs
 // 用于间接访问所有EPWM模块
 volatile struct EPWM_REGS *ePWM[] = {
 		&EPwm1Regs,
 		&EPwm1Regs, &EPwm2Regs, &EPwm3Regs, &EPwm4Regs, &EPwm5Regs, &EPwm6Regs,
-		&EPwm7Regs, &EPwm8Regs, &EPwm9Regs, &EPwm10Regs, &EPwm11Regs, &EPwm12Regs};
+		&EPwm7Regs, &EPwm8Regs};
 
-// 用于间接访问所有SDFM(数字滤波)模块
-volatile struct SDFM_REGS *SDFM[3] = {0, &Sdfm1Regs, &Sdfm2Regs};
+//xxx 修改为删除sdfm2Regs
+//用于间接访问所有SDFM(数字滤波)模块
+volatile struct SDFM_REGS *SDFM[2] = {0, &Sdfm1Regs};
 
 //用于间接访问eQEP模块
 volatile struct EQEP_REGS *eQEP[] = { &EQep1Regs,&EQep1Regs,&EQep2Regs,};
@@ -202,14 +206,17 @@ volatile float offset_SDFM2;  // SDFM电流W fbk通道中的偏移@ 0A
 _iq K1 = _IQ(0.998),		  // 偏移滤波器系数 K1: 0.05/(T+0.05);
     K2 = _IQ(0.001999);	      // 偏移滤波器系数 K2: T/(T+0.05);
 
+//电流传感器采集的电流值
 typedef struct {
 	float As;      // A相
 	float Bs;      // B相
 	float Cs;      // C相
 } CURRENT_SENSOR;
 
+//不同电流传感器采集的电流值
 CURRENT_SENSOR current_sensor[3];
 
+//电流限制值
 float curLimit = 8.0;
 
 // 用于过电流保护的CMPSS参数
@@ -395,11 +402,11 @@ void posEncoderSuite(void)
 	// 一旦找到QEP索引脉冲，则转到lsw = 2
 	if(lsw==1)
 	{
-		if (EQep1Regs.QFLG.bit.IEL == 1)			// 检查索引出现
+		if (EQep1Regs.QFLG.bit.IEL == 1)
 		{
 			qep1.CalibratedAngle=EQep1Regs.QPOSILAT;
-//			EQep1Regs.QPOSINIT = EQep1Regs.QPOSILAT; //new
-//			EQep1Regs.QEPCTL.bit.IEI = IEI_RISING;   // new
+//			EQep1Regs.QPOSINIT = EQep1Regs.QPOSILAT;
+//			EQep1Regs.QEPCTL.bit.IEI = IEI_RISING;
 			lsw=2;
 		}   // 将锁住的位置保持在第一个索引处
 	}
@@ -532,26 +539,8 @@ void main(void)
 
 	volatile int16 temp;
 
-#ifdef _FLASH
-	//将时间关键代码和Flash设置代码复制到RAM
-	//由链接器创建RamfuncsLoadStart，RamfuncsLoadEnd和RamfuncsRunStartsymbols。
-	//请参考链接器文件。
-    memcpy(&RamfuncsRunStart, &RamfuncsLoadStart, (Uint32)&RamfuncsLoadSize);
-#endif
-
-	//  初始化系统时钟:
-	// PLL, 看门狗, 使能外设时钟
-	// 此函数在F2837xD_SysCtrl.c文件中.
+	//初始化系统时钟:
 	InitSysCtrl();
-
-	// 仅在从FLASH运行时使用
-	// 请注意，变量FLASH由编译器定义
-
-#ifdef _FLASH
-	//调用Flash初始化以设置Flash等待状态
-	//此函数必须驻留在RAM中
-	InitFlash();
-#endif //(FLASH)
 
 	// 等待启用标志设置
 	while (EnableFlag == FALSE)
@@ -559,35 +548,25 @@ void main(void)
 	  BackTicker++;
 	}
 
-	// Clear all interrupts and initialize PIE vector table:
-
-	// Disable CPU interrupts
+    //禁用CPU中断
 	DINT;
 
-	// Initialize the PIE control registers to their default state.
-	// The default state is all PIE interrupts disabled and flags
-	// are cleared.
-	// This function is found in the F28M3Xx_PieCtrl.c file.
+    //初始化PIE管理器
 	InitPieCtrl();
 
-	// Disable CPU interrupts and clear all CPU interrupt flags:
+	//清除中断标志
 	IER = 0x0000;
 	IFR = 0x0000;
-	// Initialize the PIE vector table with pointers to the shell Interrupt
-	// Service Routines (ISR).
-	// This will populate the entire table, even if the interrupt
-	// is not used in this example.  This is useful for debug purposes.
-	// The shell ISR routines are found in F28M3Xx_DefaultIsr.c.
-	// This function is found in F28M3Xx_PieVect.c.
+
+    //初始化中断向量表
 	InitPieVectTable();
 
 	//定时同步进行后台循环
-	//在特定于设备的PeripheralHeaderIncludes.h中找到的计时器周期定义
 	CpuTimer0Regs.PRD.all =  10000;		// A 任务50us
 	CpuTimer1Regs.PRD.all =  20000;		// B 任务100us
 	CpuTimer2Regs.PRD.all =  30000;	    // C 任务150us
 
-// 任务状态机初始化
+//  任务状态机初始化
 	Alpha_State_Ptr = &A0;
 	A_Task_Ptr = &A1;
 	B_Task_Ptr = &B1;
@@ -604,17 +583,20 @@ void main(void)
 	EALLOW;
 	CpuSysRegs.PCLKCR0.bit.TBCLKSYNC = 0;
 
-	// *****************************************
+	// ******************************************
 	// 逆变器PWM配置
-	// ****************************************
+	// ******************************************
 	/* 默认情况下，PWM时钟被2分频
-	 * ClkCfgRegs.PERCLKDIVSEL.bit.EPWMCLKDIV=1
+	 * ClkCfgRegs.PERCLKDIVSEL.bit.EPWMCLKDIV = 1
 	 * 死区需要为2.0us => 10ns * 200 = 2us
 	 */
-	PWM_1ch_UpDwnCnt_CNF(1,INV_PWM_TICKS,200);
-	PWM_1ch_UpDwnCnt_CNF(2,INV_PWM_TICKS,200);
-	PWM_1ch_UpDwnCnt_CNF(3,INV_PWM_TICKS,200);
 
+//	PWM_1ch_UpDwnCnt_CNF(1,INV_PWM_TICKS,200);
+//	PWM_1ch_UpDwnCnt_CNF(2,INV_PWM_TICKS,200);
+//	PWM_1ch_UpDwnCnt_CNF(3,INV_PWM_TICKS,200);
+    PWM_1ch_UpDwnCnt_CNF(1,10000,200);
+    PWM_1ch_UpDwnCnt_CNF(2,10000,200);
+    PWM_1ch_UpDwnCnt_CNF(3,10000,200);
 	// **********************************************
 	// Sigma Delta时钟设置-pwm5
 	// *********************************************
@@ -630,10 +612,11 @@ void main(void)
 	// 旋转变压器的PWM6时基
 	PWM_1ch_UpDwnCnt_CNF(6,RESOLVER_PWM_TICKS,160);
 
+//xxx EPWM11 修改为EPWM8
 	// ********************************************************************
 	//PWM11用于将SD滤波器窗口与电机控制PWM同步
 	// ********************************************************************
-	PWM_1ch_UpCnt_CNF(11,INV_PWM_TICKS);
+	PWM_1ch_UpCnt_CNF(8,INV_PWM_TICKS);
 
 	//将2和3配置为从属
 	EPwm2Regs.TBCTL.bit.SYNCOSEL = TB_SYNC_IN;//同步输出选择：EPWMxSYNC
@@ -656,20 +639,27 @@ void main(void)
 	EPwm6Regs.TBPHS.bit.TBPHS    = 2;
 	EPwm6Regs.TBCTL.bit.PHSDIR   = TB_UP;
 
-	SyncSocRegs.SYNCSELECT.bit.EPWM10SYNCIN = 0;  //EPwm1Sync Out
-	EPwm10Regs.TBCTL.bit.SYNCOSEL  = TB_SYNC_IN;
+//XXX EPWM10 X修改为EPWM7
+	SyncSocRegs.SYNCSELECT.bit.EPWM7SYNCIN = 0;  //EPwm1Sync Out
+	EPwm7Regs.TBCTL.bit.SYNCOSEL  = TB_SYNC_IN;
+//XXX EPWM11配置修改为EPWM8
+	EPwm8Regs.TBCTL.bit.PHSEN  = TB_ENABLE;
+	EPwm8Regs.TBPHS.bit.TBPHS  = 2;
+	EPwm8Regs.TBCTL.bit.PHSDIR = TB_UP;
 
-	EPwm11Regs.TBCTL.bit.PHSEN  = TB_ENABLE;
-	EPwm11Regs.TBPHS.bit.TBPHS  = 2;
-	EPwm11Regs.TBCTL.bit.PHSDIR = TB_UP;
+	EPwm8Regs.CMPC = EPwm8Regs.TBPRD - SDFM_TICKS*(OSR_RATE+1)*3/2;
+	EPwm8Regs.CMPA.bit.CMPA = (SDFM_TICKS*(OSR_RATE+1)*3/2) + 500; // 500 is arbitrary
+	EPwm8Regs.CMPD = 0;
 
-	EPwm11Regs.CMPC = EPwm11Regs.TBPRD - SDFM_TICKS*(OSR_RATE+1)*3/2;
-	EPwm11Regs.CMPA.bit.CMPA = (SDFM_TICKS*(OSR_RATE+1)*3/2) + 500; // 500 is arbitrary
-	EPwm11Regs.CMPD = 0;
-
+//xxx PWM GPIO配置
 	// ***********************************
 	// Set up GPIOs for PWM functions
 	// **************************************
+extern InitEPwm1Gpio();
+extern InitEPwm2Gpio();
+extern InitEPwm3Gpio();
+extern InitEPwm4Gpio();
+extern InitEPwm5Gpio();
 	InitEPwm1Gpio();
 	InitEPwm2Gpio();
 	InitEPwm3Gpio();
@@ -714,7 +704,7 @@ void main(void)
 	// Ifb-SW  ADC B4/C+
 	// LEM V   ADC A2/C+
 	// LEM W   ADC B2/C+
-	// R_SIN   ADC D1
+	// R_SIN   ADC D1       //ADC位置修改到C4上
 	// R_COS   ADC C1
 	// Vfb-U   ADC C3
 	// Vfb-V   ADC A3
@@ -728,99 +718,86 @@ void main(void)
 	// SC-R    ADC D2/C+
 	// Bus Volt ADC B0
 
-	// On piccolo 133ns for ACQPS
-	// hencce ACQPS on soprano is 133/5~30
 
-	// Configure the SOC0 on ADC a-d
 #if (CGND == HOT)
-	// Shunt Motor Currents (SV) @ A4
+	// 并联电流传感器 (SV) @ A4
 	// ********************************
-	AdcaRegs.ADCSOC0CTL.bit.CHSEL     = 4;    // SOC0 will convert pin A4
-	AdcaRegs.ADCSOC0CTL.bit.ACQPS     = 30;   // sample window in SYSCLK cycles
-	AdcaRegs.ADCSOC0CTL.bit.TRIGSEL   = 5;    // trigger on ePWM1 SOCA/C
-	// Configure the post processing block (PPB) to eliminate subtraction related calculation
-	AdcaRegs.ADCPPB1CONFIG.bit.CONFIG = 0;    // PPB is associated with SOC0
-	AdcaRegs.ADCPPB1OFFCAL.bit.OFFCAL = 0;    // Write zero to this for now till offset ISR is run
-
-	// Shunt Motor Currents (SW) @ B4
+	AdcaRegs.ADCSOC0CTL.bit.CHSEL     = 4;    // ADC_A SOC0 连接引脚A4
+	AdcaRegs.ADCSOC0CTL.bit.ACQPS     = 30;   // 采样窗口时间
+	AdcaRegs.ADCSOC0CTL.bit.TRIGSEL   = 5;    // 触发ePWM1 SOCA/C
+	AdcaRegs.ADCPPB1CONFIG.bit.CONFIG = 0;    // PPB与SOC0相关联
+	AdcaRegs.ADCPPB1OFFCAL.bit.OFFCAL = 0;    // 写入零，等待运行偏移ISR
+	// 并联电流传感器 (SW) @ B4
 	// ********************************
-	AdcbRegs.ADCSOC0CTL.bit.CHSEL     = 4;    // SOC0 will convert pin B4
-	AdcbRegs.ADCSOC0CTL.bit.ACQPS     = 30;   // sample window in SYSCLK cycles
-	AdcbRegs.ADCSOC0CTL.bit.TRIGSEL   = 5;    // trigger on ePWM1 SOCA/C
-	// Configure PPB to eliminate subtraction related calculation
-	AdcbRegs.ADCPPB1CONFIG.bit.CONFIG = 0;    // PPB is associated with SOC0
-	AdcbRegs.ADCPPB1OFFCAL.bit.OFFCAL = 0;    // Write zero to this for now till offset ISR is run
+	AdcbRegs.ADCSOC0CTL.bit.CHSEL     = 4;    // ADC_B SOC0 连接引脚B4
+	AdcbRegs.ADCSOC0CTL.bit.ACQPS     = 30;   // 采样窗口时间
+	AdcbRegs.ADCSOC0CTL.bit.TRIGSEL   = 5;    // 触发ePWM1 SOCA/C
+	AdcbRegs.ADCPPB1CONFIG.bit.CONFIG = 0;    // PPB与SOC0相关联
+	AdcbRegs.ADCPPB1OFFCAL.bit.OFFCAL = 0;    // 写入零，等待运行偏移ISR
 #endif
-	// 解析器Fbk - cos信号@ C1
+	// 位置解析器Fbk - cos信号@ C1
 	// ********************************
-	AdccRegs.ADCSOC0CTL.bit.CHSEL     = 15;   // SOC0 will convert pin C15
-	AdccRegs.ADCSOC0CTL.bit.ACQPS     = 30;   // sample window in SYSCLK cycles
-	AdccRegs.ADCSOC0CTL.bit.TRIGSEL   = 15;   // trigger on ePWM6 SOCA/C
-	AdccRegs.ADCPPB1CONFIG.bit.CONFIG = 0;    // PPB is associated with SOC0
-	AdccRegs.ADCPPB1OFFCAL.bit.OFFCAL = 0;    // Write zero to this for now till offset ISR is run
-
-	// 解析器Fbk - sin信号 @ D1
+	AdccRegs.ADCSOC0CTL.bit.CHSEL     = 1;    // SOC0连接引脚C1
+	AdccRegs.ADCSOC0CTL.bit.ACQPS     = 30;   // 采样窗口时间
+	AdccRegs.ADCSOC0CTL.bit.TRIGSEL   = 15;   // 触发ePWM6 SOCA/C
+	AdccRegs.ADCPPB1CONFIG.bit.CONFIG = 0;    // PPB与SOC0相关联
+	AdccRegs.ADCPPB1OFFCAL.bit.OFFCAL = 0;    // 写入零，等待运行偏移ISR
+	//xxx 位置解析器Fbk - sin信号 @ D1-->C4
 	// ********************************
-	AdcdRegs.ADCSOC0CTL.bit.CHSEL     = 1;    // SOC0 连接引脚 D1
-	AdcdRegs.ADCSOC0CTL.bit.ACQPS     = 30;   // sample window in SYSCLK cycles
-	AdcdRegs.ADCSOC0CTL.bit.TRIGSEL   = 15;   // trigger on ePWM6 SOCA/C
-	// Configure PPB to eliminate subtraction related calculation
-	AdcdRegs.ADCPPB1CONFIG.bit.CONFIG = 0;    // PPB is associated with SOC0
-	AdcdRegs.ADCPPB1OFFCAL.bit.OFFCAL = 0;    // Write zero to this for now till offset ISR is run
+	AdccRegs.ADCSOC5CTL.bit.CHSEL     = 4;    // SOC5 连接引脚 C4
+	AdccRegs.ADCSOC5CTL.bit.ACQPS     = 30;   // 采样窗口时间
+	AdccRegs.ADCSOC5CTL.bit.TRIGSEL   = 15;   // 触发ePWM6 SOCA/C
+	AdccRegs.ADCPPB4CONFIG.bit.CONFIG = 5;    // PPB4与SOC5相关联
+	AdccRegs.ADCPPB4OFFCAL.bit.OFFCAL = 0;    // 写入零，等待运行偏移ISR
 
-	// LEM motor current LEM-V @ at A2
+	// LEM电流传感器 LEM-V @ A2
 	// ********************************
-	AdcaRegs.ADCSOC1CTL.bit.CHSEL     = 2;    // SOC1 will convert pin A2
-	AdcaRegs.ADCSOC1CTL.bit.ACQPS     = 30;   // sample window in SYSCLK cycles
-	AdcaRegs.ADCSOC1CTL.bit.TRIGSEL   = 5;    // trigger on ePWM1 SOCA/C
-	// Configure PPB to eliminate subtraction related calculation
-	AdcaRegs.ADCPPB2CONFIG.bit.CONFIG = 1;    // PPB is associated with SOC1
-	AdcaRegs.ADCPPB2OFFCAL.bit.OFFCAL = 0;    // Write zero to this for now till offset ISR is run
+	AdcaRegs.ADCSOC1CTL.bit.CHSEL     = 2;    // SOC1连接到引脚A2
+	AdcaRegs.ADCSOC1CTL.bit.ACQPS     = 30;   // 采样窗口时间
+	AdcaRegs.ADCSOC1CTL.bit.TRIGSEL   = 5;    // 触发ePWM1 SOCA/C
+	AdcaRegs.ADCPPB2CONFIG.bit.CONFIG = 1;    // PPB与SOC1相关联
+	AdcaRegs.ADCPPB2OFFCAL.bit.OFFCAL = 0;    // 写入零，等待运行偏移ISR
 
-	// LEM motor current LEM-W @ at B2
+	// LEM电流传感器 LEM-W @ B2
 	// ********************************
-	AdcbRegs.ADCSOC1CTL.bit.CHSEL     = 2;    // SOC0 will convert pin B2
-	AdcbRegs.ADCSOC1CTL.bit.ACQPS     = 30;   // sample window in SYSCLK cycles
-	AdcbRegs.ADCSOC1CTL.bit.TRIGSEL   = 5;    // trigger on ePWM1 SOCA/C
-	// Configure PPB to eliminate subtraction related calculation
-	AdcbRegs.ADCPPB2CONFIG.bit.CONFIG = 1;    // PPB is associated with SOC1
-	AdcbRegs.ADCPPB2OFFCAL.bit.OFFCAL = 0;    // Write zero to this for now till offset ISR is run
+	AdcbRegs.ADCSOC1CTL.bit.CHSEL     = 2;    // SOC1连接到引脚B2
+	AdcbRegs.ADCSOC1CTL.bit.ACQPS     = 30;   // 采样窗口时间
+	AdcbRegs.ADCSOC1CTL.bit.TRIGSEL   = 5;    // 触发ePWM1 SOCA/C
+	AdcbRegs.ADCPPB2CONFIG.bit.CONFIG = 1;    // PPB与SOC1相关联
+	AdcbRegs.ADCPPB2OFFCAL.bit.OFFCAL = 0;    // 写入零，等待运行偏移ISR
 
-	// Phase Voltage Vfb-V @ A3
+	// 相电压 Vfb-V @ A3
 	// ***************************
-	AdcaRegs.ADCSOC2CTL.bit.CHSEL     = 3;    // SOC2 will convert pin A3,
-	AdcaRegs.ADCSOC2CTL.bit.ACQPS     = 30;   // sample window in SYSCLK cycles
-	AdcaRegs.ADCSOC2CTL.bit.TRIGSEL   = 5;    // trigger on ePWM1 SOCA/C
-	// Configure PPB to eliminate subtraction related calculation
-	AdcaRegs.ADCPPB3CONFIG.bit.CONFIG = 1;    // PPB is associated with SOC2
-	AdcaRegs.ADCPPB3OFFCAL.bit.OFFCAL = 0;    // Write zero to this for now till offset ISR is run
+	AdcaRegs.ADCSOC2CTL.bit.CHSEL     = 3;    // ADC_A SOC2连接到引脚A3
+	AdcaRegs.ADCSOC2CTL.bit.ACQPS     = 30;   // 采样窗口时间
+	AdcaRegs.ADCSOC2CTL.bit.TRIGSEL   = 5;    // 触发ePWM1 SOCA/C
+	AdcaRegs.ADCPPB3CONFIG.bit.CONFIG = 1;    // PPB与SOC2相关联
+	AdcaRegs.ADCPPB3OFFCAL.bit.OFFCAL = 0;    // 写入零，等待运行偏移ISR
 
-	// Phase Voltage Vfb-W @ B3
+	// 相电压 Vfb-W @ B3
 	// ***************************
-	AdcbRegs.ADCSOC2CTL.bit.CHSEL     = 3;    // SOC2 will convert pin B3
-	AdcbRegs.ADCSOC2CTL.bit.ACQPS     = 30;   // sample window in SYSCLK cycles
-	AdcbRegs.ADCSOC2CTL.bit.TRIGSEL   = 5;    // trigger on ePWM1 SOCA/C
-	// Configure PPB to eliminate subtraction related calculation
-	AdcbRegs.ADCPPB3CONFIG.bit.CONFIG = 1;    // PPB is associated with SOC2
-	AdcbRegs.ADCPPB3OFFCAL.bit.OFFCAL = 0;    // Write zero to this for now till offset ISR is run
+	AdcbRegs.ADCSOC2CTL.bit.CHSEL     = 3;    // ADC_B SOC2连接到引脚B3
+	AdcbRegs.ADCSOC2CTL.bit.ACQPS     = 30;   // 采样窗口时间
+	AdcbRegs.ADCSOC2CTL.bit.TRIGSEL   = 5;    // 触发ePWM1 SOCA/C
+	AdcbRegs.ADCPPB3CONFIG.bit.CONFIG = 1;    // PPB与SOC2相关联
+	AdcbRegs.ADCPPB3OFFCAL.bit.OFFCAL = 0;    // 写入零，等待运行偏移ISR
 
-	// Phase Voltage Vfb-U @ C3
+	// 相电压 Vfb-U @ C3
 	// ****************************
-	AdccRegs.ADCSOC2CTL.bit.CHSEL     = 3;    // SOC2 will convert pin C3
-	AdccRegs.ADCSOC2CTL.bit.ACQPS     = 30;   // sample window in SYSCLK cycles
-	AdccRegs.ADCSOC2CTL.bit.TRIGSEL   = 5;    // trigger on ePWM1 SOCA/C
-	// Configure PPB to eliminate subtraction related calculation
-	AdccRegs.ADCPPB3CONFIG.bit.CONFIG = 1;    // PPB is associated with SOC2
-	AdccRegs.ADCPPB3OFFCAL.bit.OFFCAL = 0;    // Write zero to this for now till offset ISR is run
+	AdccRegs.ADCSOC2CTL.bit.CHSEL     = 3;    // ADC_C SOC2连接到引脚C3
+	AdccRegs.ADCSOC2CTL.bit.ACQPS     = 30;   // 采样窗口时间
+	AdccRegs.ADCSOC2CTL.bit.TRIGSEL   = 5;    // 触发ePWM1 SOCA/C
+	AdccRegs.ADCPPB3CONFIG.bit.CONFIG = 1;    // PPB与SOC2相关联
+	AdccRegs.ADCPPB3OFFCAL.bit.OFFCAL = 0;    // 写入零，等待运行偏移ISR
 
-	// Bus Voltage Feedback at B0 (not used)
+	// Bus Voltage Feedback at B0 (未使用)
 	// **************************************
-	AdcbRegs.ADCSOC3CTL.bit.CHSEL    = 0;     // SOC3 will convert pin B0
-	AdcbRegs.ADCSOC3CTL.bit.ACQPS    = 30;    // sample window in SYSCLK cycles
-	AdcbRegs.ADCSOC3CTL.bit.TRIGSEL  = 5;     // trigger on ePWM1 SOCA/C
+	AdcbRegs.ADCSOC3CTL.bit.CHSEL    = 0;     // ADC_B SOC3连接到引脚B0
+	AdcbRegs.ADCSOC3CTL.bit.ACQPS    = 30;    // 采样窗口时间
+	AdcbRegs.ADCSOC3CTL.bit.TRIGSEL  = 5;     // 触发ePWM1 SOCA/C
 
 	// ******************************************************
-	// static analog trim for all ADCs (A, B, C and D)
+	// 所有ADC的静态模拟调整 (A, B, C and D)
 	// *******************************************************
 	adc_cal=(int*)0x0000743F;
 	*adc_cal=0x7000;
@@ -840,27 +817,29 @@ void main(void)
 	EPwm6Regs.ETPS.bit.SOCAPRD  = ET_1ST;     // 在第1个事件产生脉冲
 	EPwm6Regs.ETSEL.bit.SOCAEN  = 1;          // 使能SOCA脉冲
 
-	EPwm11Regs.ETSEL.bit.INTSEL = ET_CTRU_CMPA;   // INT on PRD event
-	EPwm11Regs.ETSEL.bit.INTEN  = 1;              // Enable INT
-	EPwm11Regs.ETPS.bit.INTPRD  = ET_1ST;         // Generate INT on every event
+//XXX EPWM11 修改为EPWM8
+	EPwm8Regs.ETSEL.bit.INTSEL = ET_CTRU_CMPA;   // 中断周期CMPA事件
+	EPwm8Regs.ETSEL.bit.INTEN  = 1;              // 使能中断
+	EPwm8Regs.ETPS.bit.INTPRD  = ET_1ST;         // 触发中断在每个事件
 
 	// SETUP DACS
 	DacaRegs.DACCTL.bit.DACREFSEL = REFERENCE_VREF;
-	DacaRegs.DACCTL.bit.LOADMODE  = 1;      // enable value change only on sync signal
-	//Enable DAC output
+	DacaRegs.DACCTL.bit.LOADMODE  = 1;      //仅在同步信号上启用值更改
+	//使能DAC输出
 	DacaRegs.DACOUTEN.bit.DACOUTEN = 1;
-	DacaRegs.DACCTL.bit.SYNCSEL    = 5;     // sync sel 5 meanse sync from pwm 6
+	DacaRegs.DACCTL.bit.SYNCSEL    = 5;     //5表示从pwm 6同步
 	DacaRegs.DACVALS.bit.DACVALS   = 1024;
 
 	DacbRegs.DACCTL.bit.DACREFSEL  = REFERENCE_VREF;
-	//Enable DAC output
+	//使能DAC输出
 	DacbRegs.DACOUTEN.bit.DACOUTEN = 1;
 	DacbRegs.DACVALS.bit.DACVALS   = 1024;
 
-	DaccRegs.DACCTL.bit.DACREFSEL  = REFERENCE_VREF;
-	//Enable DAC output
-	DaccRegs.DACOUTEN.bit.DACOUTEN = 1;
-	DaccRegs.DACVALS.bit.DACVALS   = 1024;
+//XXX 删除DAC_C
+//	DaccRegs.DACCTL.bit.DACREFSEL  = REFERENCE_VREF;
+	//使能DAC输出
+//	DaccRegs.DACOUTEN.bit.DACOUTEN = 1;
+//	DaccRegs.DACVALS.bit.DACVALS   = 1024;
 	EDIS;
 
 // ****************************************************************************
@@ -868,7 +847,7 @@ void main(void)
 //TODO 	Sigma Delta 初始化
 // ****************************************************************************
 // ****************************************************************************
-    // Setup GPIO for SD current measurement
+    // 设置GPIO用于SD电流测量
 	GPIO_SetupPinOptions(48, GPIO_INPUT, GPIO_ASYNC);
 	GPIO_SetupPinMux(48,0,7);
 
@@ -881,7 +860,7 @@ void main(void)
 	GPIO_SetupPinOptions(51, GPIO_INPUT, GPIO_ASYNC);
 	GPIO_SetupPinMux(51,0,7);
 
-	// Setup GPIO for SD voltage measurement
+	// 设置GPIO用于SD电流测量
 	GPIO_SetupPinOptions(52, GPIO_INPUT, GPIO_ASYNC);
 	GPIO_SetupPinMux(52,0,7);
 
@@ -889,38 +868,38 @@ void main(void)
 	GPIO_SetupPinMux(53,0,7);
 
 	/*******************************************************/
-	/* Input Control Module */
+	/* 输入控制模块 */
 	/*******************************************************/
-	//Configure Input Control Mode: Modulator Clock rate = Modulator data rate
+	//配置输入控制模式：调制器时钟速率=调制器数据速率
 	Sdfm_configureInputCtrl(1,FILTER1,MODE_0);
 	Sdfm_configureInputCtrl(1,FILTER2,MODE_0);
 	Sdfm_configureInputCtrl(1,FILTER3,MODE_0);
 
 	/*******************************************************/
-	/* Comparator Module */
+	/* 比较器模块 */
 	/*******************************************************/
-	//Comparator HLT and LLT
-	//Configure Comparator module's comparator filter type and comparator's OSR value,
-	// high level threshold, low level threshold
+	//比较器HLT和LLT
+	//配置比较器模块的比较器滤波器类型和比较器的OSR值，
+	//高电平阈值，低电平阈值
 	Sdfm_configureComparator(1, FILTER1, SINC3, OSR_32, HLT, LLT);
 	Sdfm_configureComparator(1, FILTER2, SINC3, OSR_32, HLT, LLT);
 	Sdfm_configureComparator(1, FILTER3, SINC3, OSR_32, HLT, LLT);
 
 	/*******************************************************/
-	/* Sinc filter Module */
+	/* 过滤器模块 */
 	/*******************************************************/
-	//Configure Data filter modules filter type, OSR value and enable / disable data filter
-	// 16 bit data representation is chosen for OSR 128 using Sinc3, from the table in the TRM
-	// the max value represented for OSR 128 using sinc 3 is +/-2097152 i.e. 2^21
-	// to represent this in 16 bit format where the first bit is sign shift by 6 bits
+	//配置数据过滤器模块的过滤器类型，OSR值并启用/禁用数据过滤器
+	//从TRM的表中使用Sinc3为OSR 128选择16位数据表示
+	//使用Sinc 3为OSR 128表示的最大值是+/- 2097152，即2 ^ 21
+	//以16位格式表示，其中第一位是符号移位6位
 	Sdfm_configureData_filter(1, FILTER1, FILTER_ENABLE, SINC3, OSR_RATE, DATA_16_BIT, SHIFT_6_BITS);
 	Sdfm_configureData_filter(1, FILTER2, FILTER_ENABLE, SINC3, OSR_RATE, DATA_16_BIT, SHIFT_6_BITS);
 	Sdfm_configureData_filter(1, FILTER3, FILTER_ENABLE, SINC3, OSR_RATE, DATA_16_BIT, SHIFT_6_BITS);
 
-	//PWM11.CMPC, PWM11.CMPD, PWM12.CMPC and PWM12.CMPD signals cannot synchronize the filters. This option is not being used in this example.
+	//PWM11.CMPC、PWM11.CMPD、PWM12.CMPC和PWM12.CMPD信号无法同步过滤器。 在此示例中未使用此选项。
     Sdfm_configureExternalreset(1,FILTER_1_EXT_RESET_ENABLE, FILTER_2_EXT_RESET_ENABLE, FILTER_3_EXT_RESET_ENABLE, FILTER_4_EXT_RESET_ENABLE);
 
-    // Enable master filter bit of the SDFM module 1
+    // 使能SDFM模块1
     Sdfm_enableMFE(1);
 
 // ****************************************************************************
@@ -928,7 +907,7 @@ void main(void)
 // 初始化QEP模块
 // ****************************************************************************
 // ****************************************************************************
-    // Setup GPIO for QEP operation
+    // 设置QEP模块引脚
 	GPIO_SetupPinOptions(20, GPIO_INPUT, GPIO_SYNC);
 	GPIO_SetupPinMux(20,0,1);
 
@@ -943,10 +922,10 @@ void main(void)
 
 // ****************************************************************************
 // ****************************************************************************
-// To profile use GPIO 42 and GPIO43 (gen purpose)
+// 使用GPIO 42和GPIO43
 // ****************************************************************************
 // ****************************************************************************
-	//configure LED
+	//指示LED
 	GPIO_SetupPinOptions(34, GPIO_OUTPUT, GPIO_ASYNC);
 	GPIO_SetupPinMux(34,0,0);
 
@@ -958,48 +937,48 @@ void main(void)
 
 // ****************************************************************************
 // ****************************************************************************
-// Paramaeter Initialisation
+// TODO 参数初始化
 // ****************************************************************************
 // ****************************************************************************
 
-	// Init QEP parameters
-    qep1.LineEncoder = 2500; // these are the number of slots in the QEP encoder
+	// 初始化QEP参数
+    qep1.LineEncoder = 2500; // 这些是QEP编码器中的插槽数
     qep1.MechScaler  = _IQ30(0.25/qep1.LineEncoder);
     qep1.PolePairs   = POLES/2;
     qep1.CalibratedAngle = 0;
     QEP_INIT_MACRO(1,qep1)
-    EQep1Regs.QEPCTL.bit.IEI = 0;        // disable POSCNT=POSINIT @ Index
+    EQep1Regs.QEPCTL.bit.IEI = 0;
 
-    // Init RESOLVER parameters
+    // 初始化RESOLVER参数
 	resolver1.StepsPerTurn = RESOLVER_STEPS_PER_TURN;
-	resolver1.MechScaler   =  1.0;       //_IQ30(1.0/resolver1.StepsPerTurn);
+	resolver1.MechScaler   =  1.0;
 	resolver1.PolePairs    = POLES/2;
 
-	// Init BiSS-C parameters
+	// 初始化BiSS-C参数
 	biss1.PolePairs    = POLES/2;
-	// Init EnDat22 parameters
+	// 初始化EnDat22参数
 	endat1.PolePairs    = POLES/2;
 
-	baseParamsInit();                    // initialise all parameters
-	derivParamsCal();                    // set up derivative loop parameters
+	baseParamsInit();                    // 初始化所有参数
+	derivParamsCal();                    // 设置微分循环参数
 	init_resolver_Float();
 
-    // Initialize the Speed module for speed calculation from QEP/RESOLVER
+    // 初始化速度模块以通过QEP / RESOLVER进行速度计算
     speed1.K1 = _IQ21(1/(BASE_FREQ*T));
-    speed1.K2 = _IQ(1/(1+T*2*PI*5));      // Low-pass cut-off frequency
+    speed1.K2 = _IQ(1/(1+T*2*PI*5));      // 低通截止频率
     speed1.K3 = _IQ(1)-speed1.K2;
     speed1.BaseRpm = 120*(BASE_FREQ/POLES);
 
-    // Initialize the RAMPGEN module
+    // 初始化RAMPGEN模块
     rg1.StepAngleMax = _IQ(BASE_FREQ*T);
 
-    // Initialize the PI module for position
+    // 初始化PI模块（位置环）
 	pi_pos.Kp = _IQ(1.0);            //_IQ(10.0);
 	pi_pos.Ki = _IQ(0.001);          //_IQ(T*SpeedLoopPrescaler/0.3);
 	pi_pos.Umax = _IQ(1.0);
 	pi_pos.Umin = _IQ(-1.0);
 
-    // Initialize the PID module for position (alternative option for eval)
+    // 初始化PID模块的位置（eval的替代选项）
     pid_pos.Ref = 0;
     pid_pos.Fdb = 0;
     pid_pos.OutMin = _IQ(-0.5);
@@ -1018,19 +997,19 @@ void main(void)
 	pid_pos.SatErr    = 0;
 	pid_pos.OutPreSat = 0;
 
-	//Initialization routine for endat operation - defined in endat.c
-	//Configures the peripherals and enables clocks for required modules
-	//Configures GPIO and XBar as needed for EnDat operation
-	//Sets up the SPI peripheral in endat data structure and enables interrupt
+	// endat操作的初始化例程-在endat.c中定义
+	//配置外围设备并启用所需模块的时钟
+	//根据需要配置GPIO和XBar，以实现EnDat操作
+	//以endat数据结构设置SPI外设并启用中断
 #if POSITION_ENCODER==ENDAT_POS_ENCODER
 	EnDat_Init();
-	//Peforms cable propagation delay calculation.
-	//This is required for long cable lengths and higher EnDat Clock frequencies
-	//Function defined in endat.c
+	//执行电缆传播延迟计算。
+	//这对于较长的电缆长度和更高的EnDat Clock频率是必需的
+	//在endat.c中定义的函数
 
 	EnDat_initDelayComp();
 
-	//Switch to high frequency - 8.3MHz	(=200/4*ENDAT_RUNTIME_FREQ_DIVIDER)
+	//切换到高频 - 8.3MHz	(=200/4*ENDAT_RUNTIME_FREQ_DIVIDER)
 	PM_endat22_setFreq(ENDAT_RUNTIME_FREQ_DIVIDER);
 	DELAY_US(800L); 	//Delay 800us
 	endat22Data.dataReady = 1;
@@ -1044,7 +1023,7 @@ void main(void)
 
 #endif
 
-	// Initialize the PID module for speed
+	// 初始化PID模块（速度环）
 #if (BUILDLEVEL==LEVEL5) || (BUILDLEVEL == LEVEL6)
 //	pid_spd.param.Kp=_IQ(2.5);
 //	pid_spd.param.Ki=_IQ(0.0001);
@@ -1067,19 +1046,19 @@ void main(void)
 	pid_spd.param.Umin = _IQ(-0.95);
 #endif
 
-	// Init PI module for ID loop
+	// 初始化PI模块（Id）
 	pi_id.Kp   = _IQ(1.0);//_IQ(3.0);
 	pi_id.Ki   = _IQ(T/0.04);//0.0075);
 	pi_id.Umax = _IQ(0.5);
 	pi_id.Umin = _IQ(-0.5);
 
-	// Init PI module for IQ loop
+	// 初始化PI模块（Iq）
 	pi_iq.Kp   = _IQ(1.0);//_IQ(4.0);
 	pi_iq.Ki   = _IQ(T/0.04);//_IQ(0.015);
 	pi_iq.Umax = _IQ(0.8);
 	pi_iq.Umin = _IQ(-0.8);
 
-	// Set mock REFERENCES for Speed and Iq loops
+	// 为Speed和Iq循环设置模拟参考
 	SpeedRef = 0.05;
 
 #if BUILDLEVEL == LEVEL3
@@ -1088,7 +1067,7 @@ void main(void)
 	IqRef = _IQ(0.05);
 #endif
 
-	// Init FLAGS
+	// 初始FLAGS
 	RunMotor = 0;
 	LedCnt1  = 0;
 	EnableResolverISR = 1;
@@ -1099,20 +1078,15 @@ void main(void)
 	Run_Delay = 100;
 #endif
 
-//  Note that the vectorial sum of d-q PI outputs should be less than 1.0 which
-//  refers to maximum duty cycle for SVGEN. Another duty cycle limiting factor
-//	is current sense through shunt resistors which depends on hardware/software
-//  implementation. Depending on the application requirements 3,2 or a single
-//	shunt resistor can be used for current waveform reconstruction. The higher
-//  number of shunt resistors allow the higher duty cycle operation and better
-//	dc bus utilization. The users should adjust the PI saturation levels
-//  carefully during open loop tests (i.e pi_id.Umax, pi_iq.Umax and Umins) as
-//	in project manuals. Violation of this procedure yields distorted  current
-// waveforms and unstable closed loop operations which may damage the inverter.
+	/*注意，d-q PI输出的矢量和应小于1.0，这是SVGEN的最大占空比。 另一个占空比限制因素是通过分流电阻
+	的电流检测，这取决于硬件/软件的实现方式。 根据应用要求，可将3,2或单个并联电阻用于电流波形重建。 并
+	联电阻的数量越多，占空比越高，直流总线的利用率越高。 如项目手册中所述，用户应在开环测试
+	（即pi_id.Umax，pi_iq.Umax和Umins）中仔细调整PI饱和度水平。 违反此程序会产生失真的电流波
+	形和不稳定的闭环操作，这可能会损坏逆变器。*/
 
 // ****************************************************************************
 // ****************************************************************************
-// Call HVDMC Protection function
+// 调用HVDMC保护函数
 // ****************************************************************************
 // ****************************************************************************
 	HVDMC_Protection();
@@ -1120,7 +1094,7 @@ void main(void)
 // TODO
 // ****************************************************************************
 // ****************************************************************************
-// Feedbacks OFFSET Calibration Routine
+// 反馈偏移校准程序
 // ****************************************************************************
 // ****************************************************************************
 	EALLOW;
@@ -1141,7 +1115,8 @@ void main(void)
 
 	for (OffsetCalCounter=0; OffsetCalCounter<20000; )
 	{
-		if(EPwm11Regs.ETFLG.bit.INT==1)
+//XXX EPWM11修改为EPWM8
+		if(EPwm8Regs.ETFLG.bit.INT==1)
 		{
 			if(OffsetCalCounter>1000)
 			{
@@ -1157,24 +1132,26 @@ void main(void)
 				offset_Rsin  = K1*offset_Rsin + K2*R_SIN*ADC_PU_SCALE_FACTOR;
 				offset_Rcos  = K1*offset_Rcos + K2*R_COS*ADC_PU_SCALE_FACTOR;
 			}
-			EPwm11Regs.ETCLR.bit.INT=1;
+//XXX EPWM11修改为EPWM8
+			EPwm8Regs.ETCLR.bit.INT=1;
 			OffsetCalCounter++;
 		}
 	}
 
 	// ********************************************
-	// Init OFFSET regs with identified values
+	// 具有标识值的初始化偏移量
 	// ********************************************
 	EALLOW;
 #if (CNGD == HOT)
-	AdcaRegs.ADCPPB1OFFREF = (offset_shntV*4096.0);     // setting shunt Iu offset
-	AdcbRegs.ADCPPB1OFFREF = (offset_shntW*4096.0);     // setting shunt Iv offset
+	AdcaRegs.ADCPPB1OFFREF = (offset_shntV*4096.0);     // 设置分流电流  Iu 偏移
+	AdcbRegs.ADCPPB1OFFREF = (offset_shntW*4096.0);     // 设置分流电流  Iv 偏移
 #endif
-	AdccRegs.ADCPPB1OFFREF = (offset_Rcos*4096.0);      // setting resolver cos in offset
-	AdcdRegs.ADCPPB1OFFREF = (offset_Rsin*4096.0);      // setting resolver sin in offset
+	AdccRegs.ADCPPB1OFFREF = (offset_Rcos*4096.0);      // 设置解析器 cos 偏移
+//xxx 解析器 sin 偏移 adc ppb选择
+	AdccRegs.ADCPPB4OFFREF = (offset_Rsin*4096.0);      // 设置解析器 sin 偏移
 
-	AdcaRegs.ADCPPB2OFFREF = (offset_lemV*4096.0);      // setting LEM Iv offset
-	AdcbRegs.ADCPPB2OFFREF = (offset_lemW*4096.0);      // setting LEM Iw offset
+	AdcaRegs.ADCPPB2OFFREF = (offset_lemV*4096.0);      // 设置 LEM Iv 偏移
+	AdcbRegs.ADCPPB2OFFREF = (offset_lemW*4096.0);      // 设置 LEM Iw 偏移
 
 	EDIS;
 
@@ -1189,24 +1166,29 @@ void main(void)
 	AdccRegs.ADCINTSEL1N2.bit.INT1CONT = 1;
 	AdccRegs.ADCINTSEL1N2.bit.INT1E    = 1;
 
+//XXX EPWM11修改为EPWM8
 	//PWM11 INT用于触发电机控制ISR
-	EPwm11Regs.ETSEL.bit.INTSEL = ET_CTRU_CMPA;   // 中断在CMPA事件
-	EPwm11Regs.ETSEL.bit.INTEN  = 1;              // 使能中断
-	EPwm11Regs.ETPS.bit.INTPRD  = ET_1ST;         // 中断发生在每个事件
+	EPwm8Regs.ETSEL.bit.INTSEL = ET_CTRU_CMPA;   // 中断在CMPA事件
+	EPwm8Regs.ETSEL.bit.INTEN  = 1;              // 使能中断
+	EPwm8Regs.ETPS.bit.INTPRD  = ET_1ST;         // 中断发生在每个事件
 
 	//配置解析器中断向量:ADC_C1--解析器sin信号
 	PieVectTable.ADCC1_INT = &ResolverISR;
+
+//XXX EPWM11修改为EPWM8
 	//配置电机控制中断向量:EPWM11
-	PieVectTable.EPWM11_INT = &MotorControlISR;
-    //还能PWM11 PIE中断3.11
-	PieCtrlRegs.PIEIER3.bit.INTx11 = 1;
+	PieVectTable.EPWM8_INT = &MotorControlISR;
+//XXX EPWM11修改为EPWM8
+    //使能PWM8 PIE中断3.8
+	PieCtrlRegs.PIEIER3.bit.INTx8 = 1;
 
 #if POSITION_ENCODER == RESOLVER_POS_ENCODER
 	//使能ADC_C1 PIE中断1.3
 	PieCtrlRegs.PIEIER1.bit.INTx3  = 1;
 #endif
+//XXX EPWM11修改为EPWM8
     //清除中断标志
-	EPwm11Regs.ETCLR.bit.INT=1;
+	EPwm8Regs.ETCLR.bit.INT=1;
 
 	IER |= M_INT3; // 使能组3中断
 	IER |= M_INT1; // 使能组1中断
@@ -1258,34 +1240,34 @@ void A0(void)
 
 void B0(void)
 {
-	// loop rate synchronizer for B-tasks
+	// B任务的循环速率同步器
 	if(CpuTimer1Regs.TCR.bit.TIF == 1)
 	{
-		CpuTimer1Regs.TCR.bit.TIF = 1;				// clear flag
+		CpuTimer1Regs.TCR.bit.TIF = 1;				//清除标志
 
 		//-----------------------------------------------------------
-		(*B_Task_Ptr)();		// jump to a B Task (B1,B2,B3,...)
+		(*B_Task_Ptr)();		// 执行B任务中某个子任务(B1,B2,B3,...)
 		//-----------------------------------------------------------
-		VTimer1[0]++;			// virtual timer 1, instance 0 (spare)
+		VTimer1[0]++;			// 虚拟计时器1
 	}
 
-	Alpha_State_Ptr = &C0;		// Allow C state tasks
+	Alpha_State_Ptr = &C0;		// 跳转到C任务
 }
 
 void C0(void)
 {
-	// loop rate synchronizer for C-tasks
+	// C任务的循环速率同步器
 	if(CpuTimer2Regs.TCR.bit.TIF == 1)
 	{
-		CpuTimer2Regs.TCR.bit.TIF = 1;				// clear flag
+		CpuTimer2Regs.TCR.bit.TIF = 1;				//清除标志
 
 		//-----------------------------------------------------------
-		(*C_Task_Ptr)();		// jump to a C Task (C1,C2,C3,...)
+		(*C_Task_Ptr)();		// 执行C任务中某个子任务(C1,C2,C3,...)
 		//-----------------------------------------------------------
-		VTimer2[0]++;			//virtual timer 2, instance 0 (spare)
+		VTimer2[0]++;			// 虚拟计时器2
 	}
 
-	Alpha_State_Ptr = &A0;	// Back to State A0
+	Alpha_State_Ptr = &A0;	// 跳转到A任务
 }
 
 
@@ -1293,32 +1275,32 @@ void C0(void)
 //	A - TASKS (每50us执行一次)
 //=================================================================================
 
-// Setup OCP limits and digital filter parameters of CMPSS
+// 设置CMPSS的OCP限制和数字滤波器参数
 void  CMPSS_DIG_FILTER(volatile struct CMPSS_REGS *v, Uint16 curHi, Uint16 curLo)
 {
-	// comparator references
-	v->DACHVALS.bit.DACVAL = curHi;   // positive max current limit
-	v->DACLVALS.bit.DACVAL = curLo;   // negative max current limit
+	// 比较器参考
+	v->DACHVALS.bit.DACVAL = curHi;   // 正最大电流限制
+	v->DACLVALS.bit.DACVAL = curLo;   // 负最大电流限制
 
-	// digital filter settings - HIGH side
-	v->CTRIPHFILCLKCTL.bit.CLKPRESCALE = clkPrescale;    // set time between samples, max : 1023
-	v->CTRIPHFILCTL.bit.SAMPWIN        = sampwin;        // # of samples in window, max : 31
-	v->CTRIPHFILCTL.bit.THRESH         = thresh;         // recommended : thresh > sampwin/2
+	// 数字滤波器设置-高侧
+	v->CTRIPHFILCLKCTL.bit.CLKPRESCALE = clkPrescale;    // 设置样本之间的时间，最大值：1023
+	v->CTRIPHFILCTL.bit.SAMPWIN        = sampwin;        // 窗口中的样本数量，最大值：31
+	v->CTRIPHFILCTL.bit.THRESH         = thresh;         // 推荐: thresh > sampwin/2
 
-	// digital filter settings - LOW side
-	v->CTRIPLFILCLKCTL.bit.CLKPRESCALE = clkPrescale;    // Max count of 1023 */
-	v->CTRIPLFILCTL.bit.SAMPWIN        = sampwin;        // # of samples in window, max : 31
-	v->CTRIPLFILCTL.bit.THRESH         = thresh;         // recommended : thresh > sampwin/2
+	// 数字滤波器设置-低侧
+	v->CTRIPLFILCLKCTL.bit.CLKPRESCALE = clkPrescale;    // 设置样本之间的时间，最大值：1023
+	v->CTRIPLFILCTL.bit.SAMPWIN        = sampwin;        // 窗口中的样本数量，最大值：31
+	v->CTRIPLFILCTL.bit.THRESH         = thresh;         // 推荐: thresh > sampwin/2
 
 	return;
 }
 
 //--------------------------------------------------------
-void A1(void) // SPARE (not used)
+void A1(void)
 //--------------------------------------------------------
 {
 	// *******************************************************
-	// Current limit setting / tuning in Debug environment
+	// 电流限制设置/调试环境中的调整
 	// *******************************************************
 	EALLOW;
 	  LEM_curHi = 2048 + LEM(curLimit);
@@ -1358,26 +1340,25 @@ void A1(void) // SPARE (not used)
 		clearTripFlagDMC = 0;
 		GpioDataRegs.GPBDAT.bit.GPIO41 = 1;
 
-		// clear EPWM trip flags
 		DELAY_US(1L);
 		EALLOW;
-		  // clear OST flags
+		  // 清除 OST 标志
 		  EPwm1Regs.TZCLR.bit.OST = 1;
 		  EPwm2Regs.TZCLR.bit.OST = 1;
 		  EPwm3Regs.TZCLR.bit.OST = 1;
 
-		  // clear DCAEVT1 flags
+		  // 清除 DCAEVT1 标志
 		  EPwm1Regs.TZCLR.bit.DCAEVT1 = 1;
 		  EPwm2Regs.TZCLR.bit.DCAEVT1 = 1;
 		  EPwm3Regs.TZCLR.bit.DCAEVT1 = 1;
 
-		  // clear HLATCH - (not in TRIP gen path)
+		  // 清除HLATCH
 		  Cmpss1Regs.COMPSTSCLR.bit.HLATCHCLR = 1;
 		  Cmpss3Regs.COMPSTSCLR.bit.HLATCHCLR = 1;
 		  Cmpss2Regs.COMPSTSCLR.bit.HLATCHCLR = 1;
 		  Cmpss6Regs.COMPSTSCLR.bit.HLATCHCLR = 1;
 
-		  // clear LLATCH - (not in TRIP gen path)
+		  // 清除LLATCH
 		  Cmpss1Regs.COMPSTSCLR.bit.LLATCHCLR = 1;
 		  Cmpss3Regs.COMPSTSCLR.bit.LLATCHCLR = 1;
 		  Cmpss2Regs.COMPSTSCLR.bit.LLATCHCLR = 1;
@@ -1386,29 +1367,29 @@ void A1(void) // SPARE (not used)
 	}
 
 	//-------------------
-	//the next time CpuTimer0 'counter' reaches Period value go to A2
+	//下次CpuTimer0定时值到达，将转到A2
 	A_Task_Ptr = &A2;
 	//-------------------
 }
 
 //-----------------------------------------------------------------
-void A2(void) // SPARE (not used)
+void A2(void)
 //-----------------------------------------------------------------
 {
 
 	//-------------------
-	//the next time CpuTimer0 'counter' reaches Period value go to A3
+    //下次CpuTimer0定时值到达，将转到A3
 	A_Task_Ptr = &A3;
 	//-------------------
 }
 
 //-----------------------------------------
-void A3(void) // SPARE (not used)
+void A3(void)
 //-----------------------------------------
 {
 
 	//-----------------
-	//the next time CpuTimer0 'counter' reaches Period value go to A1
+    //下次CpuTimer0定时值到达，将转到A1
 	A_Task_Ptr = &A1;
 	//-----------------
 }
@@ -1422,34 +1403,34 @@ void A3(void) // SPARE (not used)
 //----------------------------------- USER ----------------------------------------
 
 //----------------------------------------
-void B1(void) // Toggle GPIO-00
+void B1(void)
 //----------------------------------------
 {
 
 	//-----------------
-	//the next time CpuTimer1 'counter' reaches Period value go to B2
+	//下次CpuTimer1定时值到达，将转到B2
 	B_Task_Ptr = &B2;
 	//-----------------
 }
 
 //----------------------------------------
-void B2(void) //  备用
+void B2(void)
 //----------------------------------------
 {
 
 	//-----------------
-	//the next time CpuTimer1 'counter' reaches Period value go to B3
+    //下次CpuTimer1定时值到达，将转到B3
 	B_Task_Ptr = &B3;
 	//-----------------
 }
 
 //----------------------------------------
-void B3(void) //  备用
+void B3(void)
 //----------------------------------------
 {
 
 	//-----------------
-	//the next time CpuTimer1 'counter' reaches Period value go to B1
+    //下次CpuTimer1定时值到达，将转到B1
 	B_Task_Ptr = &B1;
 	//-----------------
 }
@@ -1472,41 +1453,44 @@ void C1(void) 	// 翻转 GPIO-34
 		LedCnt1 = 200;
 	}
 	else
-		LedCnt1--;
+	{
+        LedCnt1--;
+	}
+
 
 	//-----------------
-	//the next time CpuTimer2 'counter' reaches Period value go to C2
+	//下次CpuTimer2定时值到达，将转到C2
 	C_Task_Ptr = &C2;
 	//-----------------
 
 }
 
 //----------------------------------------
-void C2(void) //  SPARE
+void C2(void)
 //----------------------------------------
 {
 
 	//-----------------
-	//the next time CpuTimer2 'counter' reaches Period value go to C3
+    //下次CpuTimer2定时值到达，将转到C3
 	C_Task_Ptr = &C3;
 	//-----------------
 }
 
 
 //-----------------------------------------
-void C3(void) //  SPARE
+void C3(void)
 //-----------------------------------------
 {
 
 	//-----------------
-	//the next time CpuTimer2 'counter' reaches Period value go to C1
+    //下次CpuTimer2定时值到达，将转到C1
 	C_Task_Ptr = &C1;
 	//-----------------
 }
 
 // ****************************************************************************
 // ****************************************************************************
-//TODO Motor Control ISR
+//TODO 电机控制ISR
 // ****************************************************************************
 // ****************************************************************************
 interrupt void MotorControlISR(void)
@@ -1514,15 +1498,15 @@ interrupt void MotorControlISR(void)
 
 	EINT;
 
-	// Verifying the ISR
+	//中断计数器
     IsrTicker++;
 
 
 // =============================== LEVEL 1 ======================================
-//    检查目标独立模块，占空比波形和PWM更新在此级别保持电机断开连接
+//    检查目标独立模块，占空比波形和PWM更新，在此级别保持电机断开连接
 // ==============================================================================
 
-//TODO BUILD 1
+//TODO 构建等级1
 #if (BUILDLEVEL == LEVEL1)
 
 // ------------------------------------------------------------------------------
@@ -1569,7 +1553,7 @@ interrupt void MotorControlISR(void)
 	EPwm3Regs.CMPA.bit.CMPA = (INV_PWM_HALF_TBPRD*svgen1.Tc)+INV_PWM_HALF_TBPRD;
 
 // ------------------------------------------------------------------------------
-//  连接DATALOG模块的输入
+//  连接DATALOG模块
 // ------------------------------------------------------------------------------
 	DlogCh1 = rg1.Out;
 	DlogCh2 = svgen1.Ta;
@@ -1582,12 +1566,14 @@ interrupt void MotorControlISR(void)
 	if (rslvrIn.TUNING)
 	{
 		DacbRegs.DACVALS.bit.DACVALS = rslvrOut.angleRaw*4096;
-		DaccRegs.DACVALS.bit.DACVALS = rslvrOut.angleOut*4096;
+//xxx 删除DAC_C数据显示器模块
+//		DaccRegs.DACVALS.bit.DACVALS = rslvrOut.angleOut*4096;
 	}
 	else
 	{
 		DacbRegs.DACVALS.bit.DACVALS = (svgen1.Tb*0.5+0.5)*4096;
-		DaccRegs.DACVALS.bit.DACVALS = (svgen1.Tc*0.5+0.5)*4096;
+//xxx 删除DAC_C数据显示器模块
+//		DaccRegs.DACVALS.bit.DACVALS = (svgen1.Tc*0.5+0.5)*4096;
 	}
 
 #endif // (BUILDLEVEL==LEVEL1)
@@ -1603,7 +1589,7 @@ interrupt void MotorControlISR(void)
 //         - speed estimation
 // ==============================================================================
 
-//TODO INCRBUILD 2
+//TODO 构建等级2
 #if (BUILDLEVEL==LEVEL2)
 
 	// ------------------------------------------------------------------------------
@@ -1721,7 +1707,7 @@ interrupt void MotorControlISR(void)
 //         words, to use the actual angle, a loaded motor is needed.
 // ==============================================================================
 
-//TODO INCRBUILD 3
+//TODO 构建等级3
 #if (BUILDLEVEL==LEVEL3)
 
 	// ------------------------------------------------------------------------------
@@ -1877,7 +1863,7 @@ interrupt void MotorControlISR(void)
 //  lsw=2: close speed loop and current loops Id, Iq
 // ==============================================================================
 
-//TODO INCRBUILD 4
+//TODO 构建等级4
 #if (BUILDLEVEL==LEVEL4)
 
 // ------------------------------------------------------------------------------
@@ -2050,7 +2036,7 @@ interrupt void MotorControlISR(void)
 //  lsw=2: close all loops, position, speed and currents Id, Iq
 // ==============================================================================
 
-//TODO INCRBUILD 5
+//TODO 构建等级5
 #if (BUILDLEVEL==LEVEL5)
 
 	// ------------------------------------------------------------------------------
@@ -2203,14 +2189,14 @@ interrupt void MotorControlISR(void)
 	SVGENDQ_MACRO(svgen1)
 
 // ------------------------------------------------------------------------------
-//  Computed Duty and Write to CMPA register
+//  计算占空比写入CMPA寄存器
 // ------------------------------------------------------------------------------
 	EPwm1Regs.CMPA.bit.CMPA = (INV_PWM_HALF_TBPRD*svgen1.Tc)+INV_PWM_HALF_TBPRD;
 	EPwm2Regs.CMPA.bit.CMPA = (INV_PWM_HALF_TBPRD*svgen1.Ta)+INV_PWM_HALF_TBPRD;
 	EPwm3Regs.CMPA.bit.CMPA = (INV_PWM_HALF_TBPRD*svgen1.Tb)+INV_PWM_HALF_TBPRD;
 
 // ------------------------------------------------------------------------------
-//    Connect inputs of the DATALOG module
+//    连接变量到DATALOG模块
 // ------------------------------------------------------------------------------
 	DlogCh1 = rg1.Out;
 	DlogCh2 = park1.Ds;
@@ -2218,20 +2204,22 @@ interrupt void MotorControlISR(void)
 	DlogCh4 = park1.Beta;
 
 //------------------------------------------------------------------------------
-// Variable display on DACs B and C
+// 变量输出到DACs B和C通道
 //------------------------------------------------------------------------------
-	DacbRegs.DACVALS.bit.DACVALS = pi_pos.Ref*4096; //
-	DaccRegs.DACVALS.bit.DACVALS = pi_pos.Fbk*4096; //
+	DacbRegs.DACVALS.bit.DACVALS = pi_pos.Ref*4096;
+	DaccRegs.DACVALS.bit.DACVALS = pi_pos.Fbk*4096;
 
 #endif // (BUILDLEVEL==LEVEL5)
 
 
 // ------------------------------------------------------------------------------
-//    Call the DATALOG update function.
+//    调用DATALOG模块更新函数
 // ------------------------------------------------------------------------------
 	DLOG_4CH_F_FUNC(&dlog_4ch1);
 
-    EPwm11Regs.ETCLR.bit.INT = 1;
+//XXX 修改为清除PWM8中断标志
+	//清除PWM11中断标志
+    EPwm8Regs.ETCLR.bit.INT = 1;
     PieCtrlRegs.PIEACK.all   = PIEACK_GROUP3;
 
 }// MainISR Ends Here
@@ -2243,14 +2231,14 @@ interrupt void MotorControlISR(void)
 // ****************************************************************************
 // ****************************************************************************
 
-//definitions for selecting DACH reference
+//定义DACH参考选择
 #define REFERENCE_VDDA     0
 
-//definitions for COMPH input selection
+//定义COMPH输入选择
 #define NEGIN_DAC          0
 #define NEGIN_PIN          1
 
-//definitions for CTRIPH/CTRIPOUTH output selection
+//定义CTRIPH/CTRIPOUTH输出选择
 #define CTRIP_ASYNCH       0
 #define CTRIP_SYNCH        1
 #define CTRIP_FILTER       2
@@ -2258,23 +2246,23 @@ interrupt void MotorControlISR(void)
 
 void cmpssConfig(volatile struct CMPSS_REGS *v, int16 Hi, int16 Lo)
 {
-	// Set up COMPCTL register
-	v->COMPCTL.bit.COMPDACE    = 1;             // Enable CMPSS
-	v->COMPCTL.bit.COMPLSOURCE = NEGIN_DAC;     // NEG signal from DAC for COMP-L
-	v->COMPCTL.bit.COMPHSOURCE = NEGIN_DAC;     // NEG signal from DAC for COMP-H
-	v->COMPCTL.bit.COMPHINV    = 0;             // COMP-H output is NOT inverted
-	v->COMPCTL.bit.COMPLINV    = 1;             // COMP-L output is inverted
-	v->COMPCTL.bit.ASYNCHEN    = 0;             // Disable aynch COMP-H ouput
-	v->COMPCTL.bit.ASYNCLEN    = 0;             // Disable aynch COMP-L ouput
+	//设置COMPCTL寄存器
+	v->COMPCTL.bit.COMPDACE    = 1;             // 使能CMPSS
+	v->COMPCTL.bit.COMPLSOURCE = NEGIN_DAC;     // 来自DAC的COMP-L的NEG信号
+	v->COMPCTL.bit.COMPHSOURCE = NEGIN_DAC;     // 来自DAC的COMP-H的NEG信号
+	v->COMPCTL.bit.COMPHINV    = 0;             // COMP-H输出未反相
+	v->COMPCTL.bit.COMPLINV    = 1;             // COMP-L输出反相
+	v->COMPCTL.bit.ASYNCHEN    = 0;             // 禁用同步COMP-H输出
+	v->COMPCTL.bit.ASYNCLEN    = 0;             // 禁用同步COMP-L输出
 	v->COMPCTL.bit.CTRIPHSEL    = CTRIP_FILTER; // Dig filter output ==> CTRIPH
 	v->COMPCTL.bit.CTRIPOUTHSEL = CTRIP_FILTER; // Dig filter output ==> CTRIPOUTH
 	v->COMPCTL.bit.CTRIPLSEL    = CTRIP_FILTER; // Dig filter output ==> CTRIPL
 	v->COMPCTL.bit.CTRIPOUTLSEL = CTRIP_FILTER; // Dig filter output ==> CTRIPOUTL
 
-	// Set up COMPHYSCTL register
+	//设置COMPHYSCTL寄存器
 	v->COMPHYSCTL.bit.COMPHYS   = 2; // COMP hysteresis set to 2x typical value
 
-	// set up COMPDACCTL register
+	// 设置COMPDACCTL寄存器
 	v->COMPDACCTL.bit.SELREF    = 0; // VDDA is REF for CMPSS DACs
 	v->COMPDACCTL.bit.SWLOADSEL = 0; // DAC updated on sysclock
 	v->COMPDACCTL.bit.DACSOURCE = 0; // Ramp bypassed
@@ -2283,19 +2271,19 @@ void cmpssConfig(volatile struct CMPSS_REGS *v, int16 Hi, int16 Lo)
 	v->DACHVALS.bit.DACVAL = Hi;     // Set DAC-H to allowed MAX +ve current
 	v->DACLVALS.bit.DACVAL = Lo;     // Set DAC-L to allowed MAX -ve current
 
-	// digital filter settings - HIGH side
+	// 数字滤波器设置-高侧
 	v->CTRIPHFILCLKCTL.bit.CLKPRESCALE = clkPrescale; // set time between samples, max : 1023
 	v->CTRIPHFILCTL.bit.SAMPWIN        = sampwin;     // # of samples in window, max : 31
 	v->CTRIPHFILCTL.bit.THRESH         = thresh;      // recommended : thresh > sampwin/2
 	v->CTRIPHFILCTL.bit.FILINIT        = 1;           // Init samples to filter input value
 
-	// digital filter settings - LOW side
+	//数字滤波器设置-低侧
 	v->CTRIPLFILCLKCTL.bit.CLKPRESCALE = clkPrescale; // set time between samples, max : 1023
 	v->CTRIPLFILCTL.bit.SAMPWIN        = sampwin;     // # of samples in window, max : 31
 	v->CTRIPLFILCTL.bit.THRESH         = thresh;      // recommended : thresh > sampwin/2
 	v->CTRIPLFILCTL.bit.FILINIT        = 1;           // Init samples to filter input value
 
-	// Clear the status register for latched comparator events
+	// 清除状态寄存器以获取锁存的比较器事件
 	v->COMPSTSCLR.bit.HLATCHCLR = 1;
 	v->COMPSTSCLR.bit.LLATCHCLR = 1;
 
@@ -2314,17 +2302,16 @@ void HVDMC_Protection(void)
 
 	// 配置用于跳闸机制的GPIO
 
-    // GPIO输入用于读取LEM过电流宏模块的状态（低电平有效），
-	// 如果需要，GPIO40可以基于此跳闸PWM
+    // GPIO输入用于读取LEM过电流宏模块的状态（低电平有效），如果需要，GPIO40可以基于此跳闸PWM
 	// 配置为输入
 	GpioCtrlRegs.GPBPUD.bit.GPIO40  = 1; // 禁止上拉
 	GpioCtrlRegs.GPBMUX1.bit.GPIO40 = 0; // 选择GPIO作为普通引脚使用
 	GpioCtrlRegs.GPBDIR.bit.GPIO40  = 0; // 设置为输入
-	GpioCtrlRegs.GPBINV.bit.GPIO40  = 1; // 反转输入，以使反转后“ 0”为好而“ 1”为坏
+	GpioCtrlRegs.GPBINV.bit.GPIO40  = 1; // 反转输入，以使反转后0为好而1为坏
 
 	InputXbarRegs.INPUT2SELECT = 40;     // 选择GPIO40作为INPUTXBAR2
 
-	// 清除故障（低电平有效），GPIO41，
+	// 清除故障输出引脚GPIO41（低电平有效）
 	// 配置为输出
 	GpioCtrlRegs.GPBPUD.bit.GPIO41  = 1; // 禁止上拉
 	GpioCtrlRegs.GPBMUX1.bit.GPIO41 = 0; // 选择GPIO作为普通引脚使用
@@ -2345,23 +2332,23 @@ void HVDMC_Protection(void)
 	cmpssConfig(&Cmpss3Regs, LEM_curHi, LEM_curLo);  //启用CMPSS3-LEM W
 
 #if (CNGD == HOT)
-	// Shunt Current phase V(ADC A4, COMP2) and W(ADC C2, COMP6), High Low Compare event trips
+	// 分流电流相位V（ADC A4，COMP2）和W（ADC C2，COMP6），高低比较事件跳闸
 	SHUNT_curHi = 2048 + SHUNT(curLimit);
 	SHUNT_curLo = 2048 - SHUNT(curLimit);
-	cmpssConfig(&Cmpss2Regs, SHUNT_curHi, SHUNT_curLo);  //Enable CMPSS2 - Shunt V
-	cmpssConfig(&Cmpss6Regs, SHUNT_curHi, SHUNT_curLo);  //Enable CMPSS6 - Shunt U
+	cmpssConfig(&Cmpss2Regs, SHUNT_curHi, SHUNT_curLo);  //使能CMPSS2
+	cmpssConfig(&Cmpss6Regs, SHUNT_curHi, SHUNT_curLo);  //使能CMPSS6
 #endif
 
-	// 将TRIP 4配置为比较器1和3的高跳和低跳
+	// 将TRIP4配置为比较器1和3的高跳和低跳
 	// 首先清除所有内容
 	EPwmXbarRegs.TRIP4MUX0TO15CFG.all  = 0x0000;
 	EPwmXbarRegs.TRIP4MUX16TO31CFG.all = 0x0000;
 	// 为CMPSS1H和1L的命令输入启用多路复用器，即为Mux0的.1多路复用器
-	EPwmXbarRegs.TRIP4MUX0TO15CFG.bit.MUX0  = 1;  //cmpss1 - tripH or tripL
-	EPwmXbarRegs.TRIP4MUX0TO15CFG.bit.MUX4  = 1;  //cmpss3 - tripH or tripL
-	EPwmXbarRegs.TRIP4MUX0TO15CFG.bit.MUX2  = 1;  //cmpss2 - tripH or tripL
-	EPwmXbarRegs.TRIP4MUX0TO15CFG.bit.MUX10 = 1;  //cmpss6 - tripH or tripL
-	EPwmXbarRegs.TRIP4MUX0TO15CFG.bit.MUX3  = 1;  //inputxbar2 trip
+	EPwmXbarRegs.TRIP4MUX0TO15CFG.bit.MUX0  = 1;
+	EPwmXbarRegs.TRIP4MUX0TO15CFG.bit.MUX4  = 1;
+	EPwmXbarRegs.TRIP4MUX0TO15CFG.bit.MUX2  = 1;
+	EPwmXbarRegs.TRIP4MUX0TO15CFG.bit.MUX10 = 1;
+	EPwmXbarRegs.TRIP4MUX0TO15CFG.bit.MUX3  = 1;
 
 	// 首先禁用所有多路复用器
 	EPwmXbarRegs.TRIP4MUXENABLE.all = 0x0000;
@@ -2372,46 +2359,46 @@ void HVDMC_Protection(void)
 	EPwmXbarRegs.TRIP4MUXENABLE.bit.MUX10 = 1;
 	EPwmXbarRegs.TRIP4MUXENABLE.bit.MUX1  = 1;
 
-//	EPwm1Regs.DCTRIPSEL.bit.DCAHCOMPSEL = 3; //Trip 4是DCAHCOMPSEL的输入
+//	EPwm1Regs.DCTRIPSEL.bit.DCAHCOMPSEL = 3; //Trip4是DCAHCOMPSEL的输入
 //	EPwm1Regs.TZDCSEL.bit.DCAEVT1       = TZ_DCAH_HI;
 //	EPwm1Regs.DCACTL.bit.EVT1SRCSEL     = DC_EVT1;
 //	EPwm1Regs.DCACTL.bit.EVT1FRCSYNCSEL = DC_EVT_ASYNC;
-//	EPwm1Regs.TZSEL.bit.DCAEVT1         = 1;           // 1/0 - Enable/Disable One Shot Mode
+//	EPwm1Regs.TZSEL.bit.DCAEVT1         = 1;
 //
-//	EPwm2Regs.DCTRIPSEL.bit.DCAHCOMPSEL = 3; //Trip 4是DCAHCOMPSEL的输入
+//	EPwm2Regs.DCTRIPSEL.bit.DCAHCOMPSEL = 3; //Trip4是DCAHCOMPSEL的输入
 //	EPwm2Regs.TZDCSEL.bit.DCAEVT1       = TZ_DCAH_HI;
 //	EPwm2Regs.DCACTL.bit.EVT1SRCSEL     = DC_EVT1;
 //	EPwm2Regs.DCACTL.bit.EVT1FRCSYNCSEL = DC_EVT_ASYNC;
 //	EPwm2Regs.TZSEL.bit.DCAEVT1         = 1;
 //
-//	EPwm3Regs.DCTRIPSEL.bit.DCAHCOMPSEL = 3; //Trip 4是DCAHCOMPSEL的输入
+//	EPwm3Regs.DCTRIPSEL.bit.DCAHCOMPSEL = 3; //Trip4是DCAHCOMPSEL的输入
 //	EPwm3Regs.TZDCSEL.bit.DCAEVT1       = TZ_DCAH_HI;
 //	EPwm3Regs.DCACTL.bit.EVT1SRCSEL     = DC_EVT1;
 //	EPwm3Regs.DCACTL.bit.EVT1FRCSYNCSEL = DC_EVT_ASYNC;
 //	EPwm3Regs.TZSEL.bit.DCAEVT1         = 1;
 
-	EPwm1Regs.TZSEL.bit.CBC6 = 0x1; // 仿真器停止
-	EPwm2Regs.TZSEL.bit.CBC6 = 0x1; // 仿真器停止
-	EPwm3Regs.TZSEL.bit.CBC6 = 0x1; // 仿真器停止
+	EPwm1Regs.TZSEL.bit.CBC6 = 0x1; //启用TZ6作为此ePWM模块的CBC跳闸源
+	EPwm2Regs.TZSEL.bit.CBC6 = 0x1; //启用TZ6作为此ePWM模块的CBC跳闸源
+	EPwm3Regs.TZSEL.bit.CBC6 = 0x1; //启用TZ6作为此ePWM模块的CBC跳闸源
 
-	// What do we want the OST/CBC events to do?
-	// TZA events can force EPWMxA
-	// TZB events can force EPWMxB
+	//当发生OST/CBC事件时：
+	//TZA事件可以强制控制EPWMxA
+	//TZB事件可以强制控制EPWMxB
 
-	EPwm1Regs.TZCTL.bit.TZA = TZ_FORCE_LO; // EPWMxA will go low
-	EPwm1Regs.TZCTL.bit.TZB = TZ_FORCE_LO; // EPWMxB will go low
+	EPwm1Regs.TZCTL.bit.TZA = TZ_FORCE_LO; // EPWM1A输出变为低
+	EPwm1Regs.TZCTL.bit.TZB = TZ_FORCE_LO; // EPWM1B输出变为低
 
-	EPwm2Regs.TZCTL.bit.TZA = TZ_FORCE_LO; // EPWMxA will go low
-	EPwm2Regs.TZCTL.bit.TZB = TZ_FORCE_LO; // EPWMxB will go low
+	EPwm2Regs.TZCTL.bit.TZA = TZ_FORCE_LO; // EPWM2A输出变为低
+	EPwm2Regs.TZCTL.bit.TZB = TZ_FORCE_LO; // EPWM2B输出变为低
 
-	EPwm3Regs.TZCTL.bit.TZA = TZ_FORCE_LO; // EPWMxA will go low
-	EPwm3Regs.TZCTL.bit.TZB = TZ_FORCE_LO; // EPWMxB will go low
+	EPwm3Regs.TZCTL.bit.TZA = TZ_FORCE_LO; // EPWM3A输出变为低
+	EPwm3Regs.TZCTL.bit.TZB = TZ_FORCE_LO; // EPWM3B输出变为低
 
-	// Clear any spurious OV trip
+	//启用数字比较输出A事件1作为此ePWM模块的触发源
 	EPwm1Regs.TZCLR.bit.DCAEVT1 = 1;
 	EPwm2Regs.TZCLR.bit.DCAEVT1 = 1;
 	EPwm3Regs.TZCLR.bit.DCAEVT1 = 1;
-
+	//TZ中断使能
 	EPwm1Regs.TZCLR.bit.OST = 1;
 	EPwm2Regs.TZCLR.bit.OST = 1;
 	EPwm3Regs.TZCLR.bit.OST = 1;
@@ -2423,7 +2410,7 @@ void HVDMC_Protection(void)
 
 // ****************************************************************************
 // ****************************************************************************
-//TODO PWM Configuration
+//TODO PWM配置
 // ****************************************************************************
 // ****************************************************************************
 void PWM_1ch_UpDwnCnt_CNF(int16 n, Uint16 period, int16 db) {
@@ -2456,16 +2443,17 @@ void PWM_1ch_UpDwnCnt_CNF(int16 n, Uint16 period, int16 db) {
 	(*ePWM[n]).DBCTL.bit.IN_MODE  = DBA_ALL;//死区输入模式：EPWMA为源
 	(*ePWM[n]).DBCTL.bit.OUT_MODE = DB_FULL_ENABLE;//死区输出模式：DBM完全使能
 	(*ePWM[n]).DBCTL.bit.POLSEL   = DB_ACTV_HIC;//极性选择：有效高互补模式EPWMB被反转
-	(*ePWM[n]).DBRED = db;//死区发生器上升沿延迟高分辨率镜像寄存器
-	(*ePWM[n]).DBFED = db;//死区发生器下降沿计数寄存器
+//xxx 修改寄存器共用体
+	(*ePWM[n]).DBRED.bit.DBRED = db;//死区发生器上升沿延迟高分辨率镜像寄存器
+	(*ePWM[n]).DBFED.bit.DBFED = db;//死区发生器下降沿计数寄存器
 	EDIS;
 }
 
 void PWM_1ch_UpCnt_CNF(int16 n, Uint16 period) {
 	EALLOW;
-	// Time Base SubModule Registers
-	(*ePWM[n]).TBCTL.bit.PRDLD = TB_IMMEDIATE; // set Immediate load
-	(*ePWM[n]).TBPRD = period-1; // PWM frequency = 1 / period
+	// 时基子模块寄存器
+	(*ePWM[n]).TBCTL.bit.PRDLD = TB_IMMEDIATE; // 设置立即加载模式
+	(*ePWM[n]).TBPRD = period-1; // PWM 频率 = 1 / 周期
 	(*ePWM[n]).TBPHS.bit.TBPHS = 0;
 	(*ePWM[n]).TBCTR = 0;
 	(*ePWM[n]).TBCTL.bit.CTRMODE   = TB_COUNT_UP;
@@ -2473,23 +2461,24 @@ void PWM_1ch_UpCnt_CNF(int16 n, Uint16 period) {
 	(*ePWM[n]).TBCTL.bit.CLKDIV    = TB_DIV1;
 
 	(*ePWM[n]).TBCTL.bit.PHSEN    = TB_DISABLE;
-	(*ePWM[n]).TBCTL.bit.SYNCOSEL = TB_CTR_ZERO; // sync "down-stream"
+	(*ePWM[n]).TBCTL.bit.SYNCOSEL = TB_CTR_ZERO; // /同步信号选择：时基寄存器等于0
 
-	// Counter Compare Submodule Registers
-	(*ePWM[n]).CMPA.bit.CMPA        = 0; // set duty 0% initially
+	// 计数器比较子模块寄存器
+	(*ePWM[n]).CMPA.bit.CMPA        = 0; // 最初设定为0％
 	(*ePWM[n]).CMPCTL.bit.SHDWAMODE = CC_SHADOW;
 	(*ePWM[n]).CMPCTL.bit.LOADAMODE = CC_CTR_ZERO;
 
-	// Action Qualifier SubModule Registers
+	// 动作限定子模块寄存器
 	(*ePWM[n]).AQCTLA.bit.CAU = AQ_CLEAR;
 	(*ePWM[n]).AQCTLA.bit.ZRO = AQ_SET;
 
-	// Active high complementary PWMs - Set up the deadband
+	// 有源互补PWM-设置死区
 	(*ePWM[n]).DBCTL.bit.IN_MODE  = DBA_ALL;
 	(*ePWM[n]).DBCTL.bit.OUT_MODE = DB_FULL_ENABLE;
 	(*ePWM[n]).DBCTL.bit.POLSEL   = DB_ACTV_HIC;
-	(*ePWM[n]).DBRED = 0;
-	(*ePWM[n]).DBFED = 0;
+	//xxx 修改寄存器共用体
+	(*ePWM[n]).DBRED.bit.DBRED = 0;
+	(*ePWM[n]).DBFED.bit.DBFED = 0;
 	EDIS;
 }
 
@@ -2507,10 +2496,10 @@ void ConfigureADC(void)
 	//配置ADC-A
 	//设置模块时钟分频系数:sysclk/4
 	AdcaRegs.ADCCTL2.bit.PRESCALE   = 6;
-	//设置分辨率：12位
-	AdcaRegs.ADCCTL2.bit.RESOLUTION = RESOLUTION_12BIT;
-	//设置信号输入方式：单端输入
-	AdcaRegs.ADCCTL2.bit.SIGNALMODE = SIGNAL_SINGLE;
+	//xxx 设置分辨率：12位
+//	AdcaRegs.ADCCTL2.bit.RESOLUTION = RESOLUTION_12BIT;
+	//xxx 设置信号输入方式：单端输入
+//	AdcaRegs.ADCCTL2.bit.SIGNALMODE = SIGNAL_SINGLE;
 
 	//设置ADC中断脉冲的位置:在转换完成后
 	AdcaRegs.ADCCTL1.bit.INTPULSEPOS = 1;
@@ -2520,10 +2509,10 @@ void ConfigureADC(void)
 
 	//配置ADC-B
 	AdcbRegs.ADCCTL2.bit.PRESCALE   = 6;
-	//设置分辨率：12位
-	AdcbRegs.ADCCTL2.bit.RESOLUTION = RESOLUTION_12BIT;
-	//设置信号输入方式：单端输入
-	AdcbRegs.ADCCTL2.bit.SIGNALMODE = SIGNAL_SINGLE;
+	//xxx 设置分辨率：12位
+//	AdcbRegs.ADCCTL2.bit.RESOLUTION = RESOLUTION_12BIT;
+	//xxx 设置信号输入方式：单端输入
+//	AdcbRegs.ADCCTL2.bit.SIGNALMODE = SIGNAL_SINGLE;
 
 	//设置ADC中断脉冲的位置:在转换完成后
 	AdcbRegs.ADCCTL1.bit.INTPULSEPOS = 1;
@@ -2534,10 +2523,10 @@ void ConfigureADC(void)
 	//配置ADC-C
 	//设置模块时钟分频系数:sysclk/4
 	AdccRegs.ADCCTL2.bit.PRESCALE   = 6;
-	//设置分辨率：12位
-	AdccRegs.ADCCTL2.bit.RESOLUTION = RESOLUTION_12BIT;
-	//设置信号输入方式：单端输入
-	AdccRegs.ADCCTL2.bit.SIGNALMODE = SIGNAL_SINGLE;
+	//xxx 设置分辨率：12位
+//	AdccRegs.ADCCTL2.bit.RESOLUTION = RESOLUTION_12BIT;
+	//xxx 设置信号输入方式：单端输入
+//	AdccRegs.ADCCTL2.bit.SIGNALMODE = SIGNAL_SINGLE;
 
 	//设置ADC中断脉冲的位置:在转换完成后
 	AdccRegs.ADCCTL1.bit.INTPULSEPOS = 1;
@@ -2545,19 +2534,19 @@ void ConfigureADC(void)
 	//ADC-C上电
 	AdccRegs.ADCCTL1.bit.ADCPWDNZ = 1;
 
-	//配置ADC-D
-    //设置模块时钟分频系数:sysclk/4
-	AdcdRegs.ADCCTL2.bit.PRESCALE   = 6;
-	//设置分辨率：12位
-	AdcdRegs.ADCCTL2.bit.RESOLUTION = RESOLUTION_12BIT;
-	//设置信号输入方式：单端输入
-	AdcdRegs.ADCCTL2.bit.SIGNALMODE = SIGNAL_SINGLE;
-
-	//设置ADC中断脉冲的位置:在转换完成后
-	AdcdRegs.ADCCTL1.bit.INTPULSEPOS = 1;
-
-	//ADC-D上电
-	AdcdRegs.ADCCTL1.bit.ADCPWDNZ = 1;
+//xxx	//配置ADC-D
+//    //设置模块时钟分频系数:sysclk/4
+//	AdcdRegs.ADCCTL2.bit.PRESCALE   = 6;
+//	//设置分辨率：12位
+//	AdcdRegs.ADCCTL2.bit.RESOLUTION = RESOLUTION_12BIT;
+//	//设置信号输入方式：单端输入
+//	AdcdRegs.ADCCTL2.bit.SIGNALMODE = SIGNAL_SINGLE;
+//
+//	//设置ADC中断脉冲的位置:在转换完成后
+//	AdcdRegs.ADCCTL1.bit.INTPULSEPOS = 1;
+//
+//	//ADC-D上电
+//	AdcdRegs.ADCCTL1.bit.ADCPWDNZ = 1;
 
 	//延时1ms等待ADC上电完成
 	for(i = 0; i < 1000; i++){

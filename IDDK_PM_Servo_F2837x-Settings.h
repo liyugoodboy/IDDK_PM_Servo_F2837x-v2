@@ -76,7 +76,7 @@ GND配置列表 - COLD or HOT
 /*------------------------------------------------------------------------------
 设置系统构建等级
 ------------------------------------------------------------------------------*/
-#define   BUILDLEVEL LEVEL2
+#define   BUILDLEVEL LEVEL1
 
 /*------------------------------------------------------------------------------
 以下是电流传感器选项的列表
@@ -88,7 +88,7 @@ GND配置列表 - COLD or HOT
 /*------------------------------------------------------------------------------
 设置电流传感器类型。
 ------------------------------------------------------------------------------*/
-#define CURRENT_SENSE LEM_CURRENT_SENSE
+#define CURRENT_SENSE   SHUNT_CURRENT_SENSE
 
 /*------------------------------------------------------------------------------
 以下是位置编码器选项的列表
@@ -101,7 +101,7 @@ GND配置列表 - COLD or HOT
 /*------------------------------------------------------------------------------
 此行将POSITION_ENCODER设置为用户从上面的选择值
 ------------------------------------------------------------------------------*/
-#define POSITION_ENCODER  QEP_POS_ENCODER
+#define POSITION_ENCODER  RESOLVER_POS_ENCODER
 
 #ifndef BUILDLEVEL
 #error  Critical: BUILDLEVEL must be defined !!
@@ -110,13 +110,14 @@ GND配置列表 - COLD or HOT
 
 //定义常数值
 #ifndef TRUE
-#define FALSE 0
-#define TRUE  1
+#define FALSE      0
+#define TRUE       1
 #endif
 
 //定义常数PI值
 #define PI 3.14159265358979
-
+//XXX 定义系统频率（MHz）
+#define SYSTEM_FREQUENCY   100
 //定义系统频率（MHz）
 #if (DSP2803x_DEVICE_H == 1)
 #define SYSTEM_FREQUENCY   60
@@ -227,9 +228,10 @@ GND配置列表 - COLD or HOT
 #define IFB_SV_PPB      ((signed int)AdcaResultRegs.ADCPPB1RESULT.all)
 #define IFB_SW_PPB      ((signed int)AdcbResultRegs.ADCPPB1RESULT.all)
 
-#define R_SIN           AdcdResultRegs.ADCRESULT0
+//XXX  解析器sin信号的ADC结果寄存器选择
+#define R_SIN           AdccResultRegs.ADCRESULT5
 #define R_COS           AdccResultRegs.ADCRESULT0
-#define R_SIN_PPB       ((signed int)AdcdResultRegs.ADCPPB1RESULT.all)
+#define R_SIN_PPB       ((signed int)AdccResultRegs.ADCPPB4RESULT.all)
 #define R_COS_PPB       ((signed int)AdccResultRegs.ADCPPB1RESULT.all)
 
 #define IFB_LEMV        AdcaResultRegs.ADCRESULT1

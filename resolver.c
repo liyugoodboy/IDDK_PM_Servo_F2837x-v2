@@ -8,7 +8,7 @@
 //  Target:  		Floating point C2000 MCUs
 //
 //----------------------------------------------------------------------------------
-//  Copyright Texas Instruments � 2004-2012
+//  Copyright Texas Instruments � 2004-2012
 //----------------------------------------------------------------------------------
 //  Revision History:
 //----------------------------------------------------------------------------------
@@ -203,6 +203,7 @@ interrupt void ResolverISR ( void )
 
     // *** Sample sine and cosine feedbacks from ADC ***
 
+//修改ADCD0 为 ADC C5
 	rslvrOut.sin_input = (((float)R_SIN_PPB*ADC_PU_PPB_SCALE_FACTOR));
 	rslvrOut.cos_input = (((float)R_COS_PPB*ADC_PU_PPB_SCALE_FACTOR));
 
